@@ -10,7 +10,7 @@ It handles DOCKER_HOST and DOCKER_CERT_PATH environment variables as set up by b
 ## Usage
 
 
-```
+```go
     var postgresContainer *docker.Container
 
     func Setup(){
