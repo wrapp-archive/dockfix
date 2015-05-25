@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net/url"
 	"path"
 
 	"github.com/fsouza/go-dockerclient"
@@ -12,7 +13,9 @@ import (
 
 var dockerURL string
 
-func OpenClient() (*docker.Client, error) {
+// NewClient returns a new docker client, with handling of DOCKER_HOST
+// and DOCKER_CERT_PATH
+func NewClient() (*docker.Client, error) {
 
 	dockerURL = env.Default("DOCKER_HOST", "unix:///var/run/docker.sock")
 	dockerCertPath := env.Default("DOCKER_CERT_PATH", "")
@@ -27,22 +30,29 @@ func OpenClient() (*docker.Client, error) {
 	return docker.NewClient(dockerURL)
 }
 
-func StartContainer(name, baseImage string) *docker.Container {
-	containerFileName := baseImage + ".container"
+// PortURL returns a URL to the first specified port, using the DOCKER_HOST env var
+func PortURL(cont *docker.Container, portSpec docker.Port) (*url.URL, error) {
+	port := cont.NetworkSettings.Ports[portSpec][0]
+	urlstr := env.Default(
+		"DOCKER_HOST",
+		fmt.Sprintf("%v://%v", portSpec.Proto(), port.HostIP),
+	) + ":" + port.HostPort
+	return url.Parse(urlstr)
+}
 
-	cid, _ := ioutil.ReadFile(containerFileName)
-	fmt.Println("Container: ", string(cid))
-
-	var containerID string
-
-	log.Println("dockerURL", dockerURL)
-	dc, err := OpenClient()
-
+// StartContainer starts a container with the specified base image, creating one
+// if necessary. The container id is stored in a file named <name>.container.
+func StartContainer(name, baseImage string) (*docker.Container, error) {
+	dc, err := NewClient()
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
+
+	containerFileName := name + ".container"
+	cid, _ := ioutil.ReadFile(containerFileName)
+	var containerID string
 	if len(cid) != 0 {
-		fmt.Println("Container exists")
+		log.Print("Using existing container: ", string(cid))
 		containerID = string(cid)
 	} else {
 		log.Print("Creating new container for ", baseImage)
@@ -54,27 +64,24 @@ func StartContainer(name, baseImage string) *docker.Container {
 			},
 		)
 		if err != nil {
-			fmt.Println(err)
+			return nil, err
 		}
+		log.Print("Created container: ", string(cont.ID))
 		containerID = cont.ID
 	}
-
 	ioutil.WriteFile(containerFileName, []byte(containerID), 0644)
-
-	// Start container
 	hc := docker.HostConfig{
 		PublishAllPorts: true,
 	}
-	dc.StartContainer(containerID, &hc)
-	cont, err := dc.InspectContainer(containerID)
+	err = dc.StartContainer(containerID, &hc)
 	if err != nil {
-		log.Println(err)
+		return nil, err
 	}
-	return cont
+	return dc.InspectContainer(containerID)
 }
 
 func StopContainer(c *docker.Container) {
-	dc, _ := OpenClient()
+	dc, _ := NewClient()
 	dc.KillContainer(docker.KillContainerOptions{
 		ID: c.ID,
 	})
