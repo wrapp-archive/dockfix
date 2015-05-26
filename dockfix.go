@@ -5,7 +5,9 @@ import (
 	"io/ioutil"
 	"log"
 	"net/url"
+	"os"
 	"path"
+	"strings"
 
 	"github.com/fsouza/go-dockerclient"
 	"github.com/wrapp/env"
@@ -30,14 +32,25 @@ func NewClient() (*docker.Client, error) {
 	return docker.NewClient(dockerURL)
 }
 
-// PortURL returns a URL to the first specified port, using the DOCKER_HOST env var
+// PortURL returns a URL to the first specified port matching portSpec
+// It also substitutes the host flow DOCKER_HOST if applicable
 func PortURL(cont *docker.Container, portSpec docker.Port) (*url.URL, error) {
 	port := cont.NetworkSettings.Ports[portSpec][0]
-	urlstr := env.Default(
-		"DOCKER_HOST",
-		fmt.Sprintf("%v://%v", portSpec.Proto(), port.HostIP),
-	) + ":" + port.HostPort
-	return url.Parse(urlstr)
+	var host string
+	envHost := os.Getenv("DOCKER_HOST")
+	if envHost != "" {
+		envHostURL, err := url.Parse(envHost)
+		if err != nil {
+			return nil, err
+		}
+		host = strings.Split(envHostURL.Host, ":")[0]
+	} else {
+		host = string(port.HostIP)
+	}
+	return &url.URL{
+		Scheme: portSpec.Proto(),
+		Host:   fmt.Sprintf("%v:%v", host, port.HostPort),
+	}, nil
 }
 
 // StartContainer starts a container with the specified base image, creating one
