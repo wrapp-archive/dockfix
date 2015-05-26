@@ -86,10 +86,9 @@ func StartContainer(name, baseImage string) (*docker.Container, error) {
 	hc := docker.HostConfig{
 		PublishAllPorts: true,
 	}
-	err = dc.StartContainer(containerID, &hc)
-	if err != nil {
-		return nil, err
-	}
+	// Error intentionally ignored, it is ok if the container is already running,
+	// and if we run into other problems, InspectContainer will report it
+	dc.StartContainer(containerID, &hc)
 	return dc.InspectContainer(containerID)
 }
 
